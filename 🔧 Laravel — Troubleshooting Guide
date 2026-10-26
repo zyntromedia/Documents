@@ -1,0 +1,408 @@
+🔧 Laravel — Troubleshooting Guide
+ 
+รวมปัญหาที่พบบ่อยและวิธีแก้ไขแบบตรงจุด ✅
+ 
+ 
+ 
+📋 สารบัญ
+ 
+- 🔍 ทั่วไป — ปัญหาที่เจอบ่อย
+- 🚀 การติดตั้ง & Environment
+- 🗄️ ฐานข้อมูล & Migration
+- 🌐 Route & HTTP Errors
+- 📦 Cache & Performance
+- 📧 Email & Queue
+- 🔐 Authentication & Sanctum
+- 🔴 Redis & Session
+- ☁️ Deployment & Production
+- 🛠️ คำสั่งรวมสำหรับแก้ปัญหา
+ 
+ 
+ 
+🔍 ทั่วไป — ปัญหาที่เจอบ่อย
+ 
+❌ หน้าจอแสดง Error Code ต่างๆ
+ 
+Error Code สาเหตุที่เป็นไปได้ วิธีแก้ไข 
+500 Internal Server Error โค้ดผิด, Permission ไม่ถูกต้อง,  .env  ผิด ดู  storage/logs/laravel.log  → รัน  php artisan optimize:clear  → ตรวจสิทธิ์โฟลเดอร์ 
+502 Bad Gateway PHP-FPM ไม่ทำงาน หรือ Socket ผิดที่  sudo systemctl status php8.3-fpm  → รีสตาร์ท  sudo systemctl restart php8.3-fpm  
+503 Service Unavailable แอปอยู่โหมด Down / Queue ทำงานหนักเกิน  php artisan up  → ตรวจ Nginx + PHP-FPM 
+504 Gateway Timeout PHP-FPM ตอบช้า / การเชื่อมต่อ DB ช้า เพิ่ม  request_terminate_timeout  ใน PHP-FPM pool config 
+404 Not Found Route ไม่มี / Controller ผิดพาธ / Nginx ผิด config  php artisan route:list  → ตรวจ Nginx  root  ชี้ไปที่  /public  
+403 Forbidden สิทธิ์ไฟล์ไม่ถูกต้อง / CSRF Token หาย / Middleware ตรวจสิทธิ์  storage  +  bootstrap/cache  → ตรวจ  @csrf  ในฟอร์ม 
+419 Page Expired Session หมดอายุ / CSRF ไม่ตรง / Domain ไม่ตรง เพิ่ม  SESSION_DOMAIN  ใน  .env  → ตรวจ  SANCTUM_STATEFUL_DOMAINS  
+429 Too Many Requests ส่งคำขอมากเกิน Rate Limit รอสักครู่ หรือปรับค่าใน  RouteServiceProvider.php  
+ 
+❌ หน้าเปล่าหรือไม่มีข้อความเลย
+ 
+- ✅ ตรวจ  APP_DEBUG=true  ชั่วคราวเพื่อดู error จริง
+- ✅ ตรวจสิทธิ์โฟลเดอร์  storage  และ  bootstrap/cache 
+- ✅ รัน  composer install  หรือ  composer dump-autoload 
+ 
+ 
+ 
+🚀 การติดตั้ง & Environment
+ 
+❌  php artisan  ไม่ทำงาน / Command not found
+ 
+bash  
+# ตรวจว่าอยู่ในโฟลเดอร์โปรเจกต์หรือไม่
+pwd
+ls artisan
+
+# ถ้ามีไฟล์ artisan แต่รันไม่ได้
+composer install
+composer dump-autoload
+php artisan --version
+ 
+ 
+❌  .env  เปลี่ยนค่าแล้วไม่มีผล
+ 
+bash  
+# สาเหตุ: Config ถูก cache ไว้
+php artisan config:clear
+php artisan cache:clear
+
+# ถ้า production: อย่ารัน config:cache ตอนพัฒนา
+php artisan config:cache  # ❌ อย่ารันตอน local development
+ 
+ 
+❌  composer install  ล้มเหลว / การดาวน์โหลดช้ามาก
+ 
+bash  
+# ลบไฟล์ที่มีปัญหาแล้วลองใหม่
+composer clear-cache
+composer install --no-dev --prefer-dist
+
+# เปลี่ยนเป็น Mirror ในไทย
+composer config -g repo.packagist composer https://mirrors.aliyun.com/composer/
+ 
+ 
+ 
+ 
+🗄️ ฐานข้อมูล & Migration
+ 
+❌ Cannot connect to database / Connection refused
+ 
+- ✅ ตรวจว่า MySQL ทำงานอยู่:  sudo systemctl status mysql 
+- ✅ ตรวจ  .env :  DB_HOST ,  DB_PORT ,  DB_DATABASE ,  DB_USERNAME ,  DB_PASSWORD 
+- ✅ ทดสอบเชื่อมต่อโดยตรง:  mysql -u laravel_user -p laravel_db 
+- ✅ ถ้าใช้ MySQL 8+: ตรวจ Authentication Plugin
+ 
+❌ Migration ล้มเหลว / Table already exists
+ 
+bash  
+# ดูสถานะ migration
+php artisan migrate:status
+
+# รีเซ็ตเฉพาะการ migrate (⚠️ ข้อมูลจะหาย!)
+php artisan migrate:fresh
+
+# หรือย้อนกลับทีละขั้น
+php artisan migrate:rollback
+ 
+ 
+❌ Column not found / Unknown column
+ 
+- ✅ เพิ่ม column ใหม่ใน migration แล้วรัน  php artisan migrate 
+- ✅ ตรวจชื่อ column ในโค้ดให้ตรงกับฐานข้อมูล
+- ✅ ดูโครงสร้างตาราง:  php artisan db:table posts  (ต้องติดตั้ง  composer require laravel/tinker )
+ 
+❌ Duplicate entry / Unique constraint violation
+ 
+- ✅ ตรวจข้อมูลที่มีอยู่ก่อนแล้ว:  Model::where('field', $value)->exists() 
+- ✅ ใช้  firstOrCreate()  แทน  create()  เมื่อไม่แน่ใจว่ามีอยู่หรือไม่
+ 
+ 
+ 
+🌐 Route & HTTP Errors
+ 
+❌ 404 ทุกหน้า ยกเว้น  / 
+ 
+- ✅ ตรวจ Nginx config — ต้องมี  try_files $uri $uri/ /index.php?$query_string; 
+- ✅ ตรวจ Apache  .htaccess  มีอยู่ในโฟลเดอร์  public/  หรือไม่
+ 
+❌ POST/PUT/DELETE ไม่ได้ / 419 Page Expired
+ 
+- ✅ ลืมใส่  @csrf  ในฟอร์ม:  <form method="POST"> @csrf ... </form> 
+- ✅ ใช้  @method('PUT')  สำหรับ PUT/PATCH/DELETE:  <form method="POST"> @csrf @method('PUT') ... </form> 
+- ✅ API Route ไม่ต้องการ CSRF — ยกเว้นใน  app/Http/Middleware/VerifyCsrfToken.php :
+ 
+php  
+protected $except = [
+    'api/*',
+    'sanctum/token',
+];
+ 
+ 
+❌ Route มีอยู่แต่เรียกไม่ได้
+ 
+bash  
+# ดูรายการ Route ทั้งหมด
+php artisan route:list
+
+# ล้าง Route Cache
+php artisan route:clear
+
+# ตรวจว่า route อยู่ในไฟล์ที่ถูกต้อง:
+# - หน้าเว็บ → routes/web.php
+# - API → routes/api.php (มี prefix /api อัตโนมัติ)
+ 
+ 
+ 
+ 
+📦 Cache & Performance
+ 
+❌ แก้โค้ดแล้วแต่หน้าแสดงผลเก่า
+ 
+bash  
+# ล้างทุกอย่างในคำสั่งเดียว ✅
+php artisan optimize:clear
+
+# หรือล้างแยกตามประเภท
+php artisan cache:clear
+php artisan config:clear
+php artisan route:clear
+php artisan view:clear
+ 
+ 
+❌ Cache ทำงานช้า / ไม่อัปเดต
+ 
+- ✅ ตรวจ  CACHE_DRIVER  ใน  .env :  file ,  redis ,  database 
+- ✅ ถ้าใช้ Redis: ตรวจว่า Redis ทำงาน:  redis-cli ping  → ต้องได้  PONG 
+- ✅ ล้าง cache แบบเจาะจง:  Cache::forget('key-name') 
+ 
+ 
+ 
+📧 Email & Queue
+ 
+❌ ส่ง Email ไม่ได้ / Connection timed out
+ 
+- ✅ ตรวจ  MAIL_HOST ,  MAIL_PORT ,  MAIL_ENCRYPTION ,  MAIL_USERNAME ,  MAIL_PASSWORD 
+- ✅ ทดสอบส่งแบบตรงๆ ก่อน:
+ 
+php  
+use Illuminate\Support\Facades\Mail;
+try {
+    Mail::raw('Test email', function ($msg) {
+        $msg->to('test@example.com')->from('from@example.com')->subject('Test');
+    });
+    echo "✅ ส่งสำเร็จ";
+} catch (\Exception $e) {
+    echo "❌ ผิดพลาด: " . $e->getMessage();
+}
+ 
+ 
+- ✅ บน Localhost: ใช้ Mailpit หรือ Log driver แทน SMTP:  MAIL_MAILER=log 
+ 
+❌ Job ใน Queue ไม่ทำงาน
+ 
+bash  
+# ตรวจสถานะ
+php artisan queue:status
+
+# รัน Queue Worker
+php artisan queue:work
+
+# ดูงานที่ล้มเหลว
+php artisan queue:failed
+
+# ลองใหม่
+php artisan queue:retry all
+
+# รีสตาร์ท Worker หลังแก้โค้ด
+php artisan queue:restart
+ 
+ 
+❌ Job หาย / ไม่เคยรันเลย
+ 
+- ✅ ตรวจว่าใช้  ->onQueue('name')  ตรงกับชื่อ queue ที่รัน worker หรือไม่
+- ✅ ตรวจ  QUEUE_CONNECTION  ใน  .env  — ถ้าเป็น  sync  จะรันทันที ไม่เข้า queue
+ 
+ 
+ 
+🔐 Authentication & Sanctum
+ 
+❌ เข้าสู่ระบบแล้ว แต่ยังเป็น Guest / Auth::user() เป็น null
+ 
+สำหรับ Web (Blade/Breeze):
+ 
+- ✅ ตรวจ Route อยู่ภายใต้  ->middleware('auth') 
+- ✅ ตรวจ Session Driver:  SESSION_DRIVER=file  หรือ  database 
+- ✅ ล้าง Cookie / ทดสอบในโหมดไม่เก็บข้อมูลส่วนตัว
+ 
+สำหรับ API (Sanctum):
+ 
+- ✅ ส่ง Header ถูกต้อง:  Authorization: Bearer YOUR_TOKEN 
+- ✅ ตรวจ  SANCTUM_STATEFUL_DOMAINS  ใน  .env  ให้ตรงกับโดเมน frontend
+- ✅ ตรวจ Middleware ใช้  auth:sanctum  ไม่ใช่  auth  ปกติ
+- ✅ ตรวจว่าไม่ได้ลืม prefix  /api  ใน URL
+ 
+❌ Token ไม่ถูกต้อง / Unauthorized 401
+ 
+bash  
+# ตรวจวิธีรับ Token
+curl -X POST http://localhost:8000/api/sanctum/token \
+  -H "Content-Type: application/json" \
+  -d '{"email":"you@example.com","password":"123456","device_name":"test"}'
+
+# ทดสอบเรียกใช้งาน
+curl http://localhost:8000/api/user \
+  -H "Authorization: Bearer YOUR_TOKEN_HERE"
+ 
+ 
+❌ CORS Error (Frontend เรียก API ไม่ได้)
+ 
+- ✅ ติดตั้ง CORS Middleware:  composer require fruitcake/laravel-cors 
+- ✅ เปิดใช้ใน  bootstrap/app.php :  $middleware->append(\Fruitcake\Cors\HandleCors::class); 
+- ✅ ตรวจ  config/cors.php :  paths => ['api/*', 'sanctum/*'] ,  supports_credentials => true 
+ 
+ 
+ 
+🔴 Redis & Session
+ 
+❌ Cannot connect to Redis / Connection refused
+ 
+bash  
+# ตรวจสถานะ Redis
+sudo systemctl status redis
+
+# รีสตาร์ท Redis
+sudo systemctl restart redis-server
+
+# ทดสอบเชื่อมต่อ
+redis-cli ping
+# ควรได้: PONG
+
+# ถ้ายังไม่ได้ → ตรวจ .env: REDIS_HOST, REDIS_PORT, REDIS_PASSWORD
+ 
+ 
+❌ Session หาย / กลายเป็น Guest บางครั้ง
+ 
+- ✅ ตรวจ  SESSION_DOMAIN  ให้ตรงกับโดเมน (หรือเป็น  .your-domain.com  สำหรับทุก subdomain)
+- ✅  SESSION_SECURE_COOKIE=true  → ใช้ได้กับ HTTPS เท่านั้น
+- ✅ ตรวจ  SESSION_DRIVER  ไม่ใช่  array  (ใช้แค่ Testing)
+ 
+ 
+ 
+☁️ Deployment & Production
+ 
+❌ ไฟล์อัปโหลดไม่ได้ / Permission denied
+ 
+bash  
+# ตั้งสิทธิ์โฟลเดอร์ที่ต้องเขียน
+sudo chown -R www-data:www-data /var/www/laravel-app
+sudo chmod -R 755 /var/www/laravel-app
+sudo chmod -R 775 /var/www/laravel-app/storage /var/www/laravel-app/bootstrap/cache
+sudo chmod 600 /var/www/laravel-app/.env
+ 
+ 
+❌ หลังอัปโหลดโค้ดใหม่ หน้าขาว / Error 500
+ 
+bash  
+cd /var/www/laravel-app
+
+# อัปเดต Dependency
+composer install --no-dev --optimize-autoloader
+
+# ล้าง Cache เดิม
+php artisan optimize:clear
+
+# สร้าง Cache ใหม่
+php artisan optimize
+
+# รัน Migration
+php artisan migrate --force
+
+# รีสตาร์ท Queue Worker
+sudo systemctl restart laravel-queue
+ 
+ 
+❌ Nginx แสดง 404 ทุกหน้า
+ 
+- ✅ ตรวจ  root  ใน Nginx config ชี้ไปที่  /var/www/laravel-app/public 
+- ✅ ตรวจ  try_files $uri $uri/ /index.php?$query_string;  มีอยู่
+- ✅ ตรวจ PHP-FPM socket ตรงกับเวอร์ชัน PHP ที่ติดตั้ง
+ 
+bash  
+# ตรวจสอบทั้งหมด
+sudo nginx -t
+sudo systemctl reload nginx
+sudo systemctl status php8.3-fpm
+ 
+ 
+❌ SSL ไม่ทำงาน / ยังเข้า HTTP ได้
+ 
+bash  
+# ตรวจ Certbot
+sudo certbot --nginx -d your-domain.com
+
+# บังคับ Redirect HTTP → HTTPS
+# Certbot จะตั้งให้อัตโนมัติ แต่ถ้าทำเอง:
+return 301 https://$host$request_uri;
+ 
+ 
+ 
+ 
+🛠️ คำสั่งรวมสำหรับแก้ปัญหา
+ 
+✅ ชุดที่ 1 — ล้าง Cache ทั้งหมด
+ 
+bash  
+php artisan optimize:clear
+composer dump-autoload
+ 
+ 
+✅ ชุดที่ 2 — ตรวจสอบระบบเบื้องต้น
+ 
+bash  
+# ดูเวอร์ชัน
+php artisan --version
+php -v
+composer --version
+
+# ดูสถานะ
+php artisan env
+php artisan route:list
+php artisan migrate:status
+php artisan queue:status
+
+# ดู Log แบบ Real-time
+tail -f storage/logs/laravel.log
+ 
+ 
+✅ ชุดที่ 3 — กู้คืน Production
+ 
+bash  
+# เข้าโหมดบำรุงรักษา
+php artisan down --message="กำลังอัปเดตระบบ กรุณารอสักครู่..."
+
+# อัปเดต
+git pull origin main
+composer install --no-dev --optimize-autoloader
+php artisan optimize:clear
+php artisan migrate --force
+php artisan optimize
+
+# รีสตาร์ทบริการ
+sudo systemctl restart php8.3-fpm
+sudo systemctl restart laravel-queue
+
+# กลับมาใช้งาน
+php artisan up
+ 
+ 
+ 
+ 
+📝 วิธีขอความช่วยเหลืออย่างรวดเร็ว
+ 
+เมื่อมีปัญหา ให้เตรียมข้อมูลเหล่านี้ก่อนถาม 👇
+ 
+1. Error Message ที่แท้จริง — คัดจากหน้าจอหรือ  storage/logs/laravel.log 
+2. สิ่งที่ทำก่อนเกิดปัญหา — แก้ไฟล์อะไร / รันคำสั่งอะไร
+3. สภาพแวดล้อม — Local หรือ Production, PHP เวอร์ชันอะไร, Database อะไร
+4. สิ่งที่ลองแก้แล้ว — จะช่วยลดเวลาทำซ้ำ
+ 
+💡 กฎทอง: เมื่อเกิดปัญหา → ดู Log ก่อนเสมอ:  tail -n 50 storage/logs/laravel.log 
+ 
+เจอปัญหาเฉพาะจุดไหน บอกได้เลยครับ พร้อมช่วยแก้! 😊

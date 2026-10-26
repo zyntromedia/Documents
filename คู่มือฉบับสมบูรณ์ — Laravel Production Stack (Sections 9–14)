@@ -1,0 +1,666 @@
+🚀 คู่มือฉบับสมบูรณ์ — Laravel Production Stack (Sections 9–14)
+ 
+ 
+ 
+📑 สารบัญ
+ 
+- 📅 9. Task Scheduler & Cron Jobs
+- 💾 10. Database Backup & Restore
+- 🚦 11. Rate Limiting & Security Best Practices
+- 📧 12. Email Configuration
+- 🔍 13. Redis for Caching, Sessions & Queues
+- 📊 14. Logging & Monitoring
+ 
+ 
+ 
+ 
+ 
+📅 9. Task Scheduler & Cron Jobs
+ 
+ทำงานซ้ำๆ ให้เป็นอัตโนมัติ — ส่งจดหมายข่าว, สร้างรายงาน, ล้างข้อมูลเก่า
+ 
+📁 สำหรับ Laravel 11/12 —  routes/console.php 
+ 
+php  
+<?php
+
+use Illuminate\Support\Facades\Schedule;
+
+Schedule::command('cleanup:old-records')
+    ->dailyAt('01:00')
+    ->appendOutputTo(storage_path('logs/scheduler-cleanup.log'));
+
+Schedule::command('newsletter:send')
+    ->mondays()
+    ->at('08:00')
+    ->appendOutputTo(storage_path('logs/scheduler-newsletter.log'));
+
+Schedule::command('backup:run')
+    ->dailyAt('02:00')
+    ->appendOutputTo(storage_path('logs/scheduler-backup.log'));
+
+Schedule::command('backup:clean')
+    ->dailyAt('03:00')
+    ->appendOutputTo(storage_path('logs/scheduler-backup-clean.log'));
+ 
+ 
+📁 สำหรับ Laravel 10 หรือเก่ากว่า —  app/Console/Kernel.php 
+ 
+php  
+protected function schedule(Schedule $schedule): void
+{
+    $schedule->command('cleanup:old-records')->dailyAt('01:00');
+    $schedule->command('newsletter:send')->mondays()->at('08:00');
+    $schedule->command('backup:run')->dailyAt('02:00');
+    $schedule->command('backup:clean')->dailyAt('03:00');
+}
+ 
+ 
+🛠️ สร้าง Command ของตัวเอง
+ 
+bash  
+php artisan make:command CleanupOldRecords
+ 
+ 
+ app/Console/Commands/CleanupOldRecords.php :
+ 
+php  
+<?php
+namespace App\Console\Commands;
+
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
+use Carbon\Carbon;
+
+class CleanupOldRecords extends Command
+{
+    protected $signature = 'cleanup:old-records';
+    protected $description = 'ลบข้อมูลที่เก่ากว่า 90 วัน';
+
+    public function handle()
+    {
+        $this->info('กำลังล้างข้อมูลเก่า...');
+        
+        $count = DB::table('posts')
+            ->where('created_at', '<', Carbon::now()->subDays(90))
+            ->delete();
+        
+        $this->info("✅ ลบข้อมูลทั้งหมด {$count} รายการ");
+        return Command::SUCCESS;
+    }
+}
+ 
+ 
+⏰ ตั้งค่าบน Production Server
+ 
+bash  
+crontab -e
+ 
+ 
+เพิ่มบรรทัดนี้ที่ท้ายไฟล์:
+ 
+cron  
+* * * * * cd /var/www/laravel-app && php artisan schedule:run >> /dev/null 2>&1
+ 
+ 
+✅ ตรวจสอบ:
+ 
+bash  
+crontab -l
+# ทดสอบรันด้วยตนเอง
+php artisan schedule:run
+ 
+ 
+📋 ตารางความถี่ที่ใช้บ่อย
+ 
+Method ความถี่ 
+ ->everyMinute()  ทุกนาที 
+ ->everyFiveMinutes()  ทุก 5 นาที 
+ ->everyFifteenMinutes()  ทุก 15 นาที 
+ ->everyThirtyMinutes()  ทุก 30 นาที 
+ ->hourly()  ทุกชั่วโมง 
+ ->daily()  ทุกวัน ตอนเที่ยงคืน 
+ ->dailyAt('02:00')  ทุกวัน เวลาที่กำหนด 
+ ->weekly()  ทุกอาทิตย์ 
+ ->monthly()  วันที่ 1 ของเดือน 
+ ->weekdays()  จันทร์–ศุกร์ เท่านั้น 
+ 
+ 
+ 
+ 
+ 
+💾 10. Database Backup & Restore
+ 
+⭐ Option A: Spatie Backup (แนะนำ)
+ 
+ติดตั้ง:
+ 
+bash  
+composer require spatie/laravel-backup
+php artisan vendor:publish --provider="Spatie\Backup\BackupServiceProvider"
+ 
+ 
+แก้  config/backup.php :
+ 
+php  
+return [
+    'name' => env('APP_NAME', 'laravel-app'),
+    'filename_prefix' => 'backup-',
+    
+    'source' => [
+        'databases' => ['mysql'],
+        'files' => [
+            base_path('app'),
+            base_path('config'),
+            base_path('public'),
+        ],
+    ],
+
+    'destination' => [
+        'disks' => ['backup'],
+    ],
+
+    'backup' => [
+        'cleanup' => [
+            'strategy' => \Spatie\Backup\BackupDestination\BackupStrategy::class,
+            'keepAllBackupsForDays' => 7,
+            'keepDailyBackupsForDays' => 30,
+        ],
+    ],
+];
+ 
+ 
+เพิ่ม Disk ใน  config/filesystems.php :
+ 
+php  
+'disks' => [
+    'backup' => [
+        'driver' => 'local',
+        'root' => storage_path('backups'),
+    ],
+],
+ 
+ 
+คำสั่งที่ใช้:
+ 
+bash  
+# สำรองข้อมูล
+php artisan backup:run
+
+# ดูรายการไฟล์สำรอง
+php artisan backup:list
+
+# ลบไฟล์เก่า
+php artisan backup:clean
+ 
+ 
+ 
+ 
+🔐 Option B: Manual Backup Script (ปลอดภัย ไม่มีรหัสในโค้ด)
+ 
+สร้างไฟล์  ~/.my.cnf  ที่บัญชีผู้ใช้เซิร์ฟเวอร์:
+ 
+ini  
+[client]
+user=laravel_user
+password=your_database_password
+host=127.0.0.1
+ 
+ 
+bash  
+chmod 600 ~/.my.cnf
+ 
+ 
+สร้าง  scripts/backup.sh :
+ 
+bash  
+#!/bin/bash
+set -e
+
+DB_NAME="laravel_db"
+BACKUP_DIR="/var/backups/laravel"
+RETENTION_DAYS=14
+DATE=$(date +%Y%m%d_%H%M%S)
+
+mkdir -p "$BACKUP_DIR"
+
+echo "📦 กำลังสำรองฐานข้อมูล: $DB_NAME"
+mysqldump --defaults-extra-file="$HOME/.my.cnf" "$DB_NAME" | gzip > "$BACKUP_DIR/db_$DATE.sql.gz"
+
+echo "🧹 ลบไฟล์สำรองที่เก่ากว่า $RETENTION_DAYS วัน"
+find "$BACKUP_DIR" -name "db_*.sql.gz" -mtime +$RETENTION_DAYS -delete
+
+echo "✅ สำรองสำเร็จ: db_$DATE.sql.gz"
+exit 0
+ 
+ 
+ตั้งค่าสิทธิ์และตารางเวลา:
+ 
+bash  
+chmod +x scripts/backup.sh
+
+crontab -e
+ 
+ 
+เพิ่ม:
+ 
+cron  
+0 2 * * * /var/www/laravel-app/scripts/backup.sh >> /var/www/laravel-app/storage/logs/backup.log 2>&1
+ 
+ 
+กู้คืนข้อมูล:
+ 
+bash  
+# ดูรายการ
+ls -lh /var/backups/laravel/
+
+# กู้คืน
+gunzip < /var/backups/laravel/db_20261024_020000.sql.gz | mysql --defaults-extra-file="$HOME/.my.cnf" "$DB_NAME"
+ 
+ 
+ 
+ 
+ 
+ 
+🚦 11. Rate Limiting & Security Best Practices
+ 
+📌 ตั้งค่า Rate Limiter —  app/Providers/AppServiceProvider.php 
+ 
+php  
+<?php
+namespace App\Providers;
+
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\ServiceProvider;
+
+class AppServiceProvider extends ServiceProvider
+{
+    public function boot(): void
+    {
+        RateLimiter::for('api', function (Request $request) {
+            return Limit::perMinute(120)
+                ->by($request->user()?->id ?: $request->ip())
+                ->response(function () {
+                    return response()->json([
+                        'message' => 'คำขอมากเกินไป โปรดลองอีกครั้งภายใน 1 นาที',
+                        'retry_after' => 60,
+                    ], 429);
+                });
+        });
+
+        RateLimiter::for('login', function (Request $request) {
+            return Limit::perMinute(5)
+                ->by($request->ip())
+                ->response(function () {
+                    return response()->json([
+                        'message' => 'พยายามเข้าสู่ระบบมากเกินไป โปรดรอ 1 นาที',
+                    ], 429);
+                });
+        });
+    }
+}
+ 
+ 
+นำไปใช้กับ Route —  routes/api.php :
+ 
+php  
+use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\AuthController;
+use App\Http\Controllers\Api\PostController;
+
+Route::middleware(['throttle:api'])->group(function () {
+    Route::get('/posts', [PostController::class, 'index']);
+    Route::get('/posts/{post}', [PostController::class, 'show']);
+});
+
+Route::middleware(['throttle:login'])->group(function () {
+    Route::post('/sanctum/token', [AuthController::class, 'login']);
+});
+
+Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
+    Route::apiResource('posts', PostController::class)->except(['index', 'show']);
+});
+ 
+ 
+💡 เมื่อตั้งค่า  CACHE_STORE=redis  ใน  .env  แล้ว Rate Limiter จะใช้ Redis อัตโนมัติ — เร็วและแม่นยำกว่ามาก
+ 
+ 
+ 
+🛡️ Security Headers — Nginx Config
+ 
+ /etc/nginx/sites-available/laravel-app :
+ 
+nginx  
+server {
+    listen 80;
+    server_name your-domain.com;
+    root /var/www/laravel-app/public;
+
+    add_header X-Frame-Options "DENY" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';" always;
+
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    location ~ \.php$ {
+        fastcgi_pass unix:/var/run/php/php8.3-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+        include fastcgi_params;
+    }
+}
+ 
+ 
+bash  
+sudo nginx -t && sudo systemctl reload nginx
+ 
+ 
+✅ ตารางตรวจสอบความปลอดภัย
+ 
+✅ สิ่งที่ต้องทำ วิธี 
+✅ HTTPS ทุกหน้า Let's Encrypt + Certbot --nginx 
+✅ CSRF Protection ใส่  @csrf  ในฟอร์ม, ยกเว้น API ใน  VerifyCsrfToken  
+✅ ตรวจสอบข้อมูลที่รับเข้า ใช้  $request->validate()  เสมอ 
+✅ ป้องกัน SQL Injection ใช้ Eloquent/Query Builder — หลีกเลี่ยง Query ดิบ 
+✅ ป้องกัน XSS Blade escape อัตโนมัติ, ใช้  {!! !!}  เฉพาะเมื่อจำเป็นจริงๆ 
+✅ รหัสผ่านเข้ารหัส ใช้  Hash::make()  — ห้ามเก็บแบบข้อความธรรมดา 
+✅ ซ่อน Debug Mode  APP_DEBUG=false  บน Production 
+✅ ปกป้องไฟล์ .env  chmod 600 .env  — ห้ามเข้าถึงจากภายนอก 
+ 
+ 
+ 
+ 
+ 
+📧 12. Email Configuration
+ 
+⚙️ ตั้งค่า  .env 
+ 
+env  
+MAIL_MAILER=smtp
+MAIL_HOST=smtp.mailgun.org
+MAIL_PORT=587
+MAIL_USERNAME=postmaster@your-domain.com
+MAIL_PASSWORD=your-smtp-password
+MAIL_ENCRYPTION=tls
+MAIL_FROM_ADDRESS=noreply@your-domain.com
+MAIL_FROM_NAME="ZyntroAG Team"
+ 
+ 
+📝 สร้าง Mailable
+ 
+bash  
+php artisan make:mail WelcomeEmail
+ 
+ 
+ app/Mail/WelcomeEmail.php :
+ 
+php  
+<?php
+namespace App\Mail;
+
+use Illuminate\Bus\Queueable;
+use Illuminate\Mail\Mailable;
+use Illuminate\Mail\Mailables\Content;
+use Illuminate\Mail\Mailables\Envelope;
+use Illuminate\Queue\SerializesModels;
+
+class WelcomeEmail extends Mailable
+{
+    use Queueable, SerializesModels;
+
+    public function __construct(
+        public string $name,
+        public string $verifyUrl
+    ) {}
+
+    public function envelope(): Envelope
+    {
+        return Envelope::from(
+            address: config('mail.from.address'),
+            name: config('mail.from.name')
+        )->subject('ยินดีต้อนรับสู่ ZyntroAG! 🎉');
+    }
+
+    public function content(): Content
+    {
+        return Content::view('emails.welcome');
+    }
+}
+ 
+ 
+🎨 สร้างหน้าอีเมล
+ 
+ resources/views/emails/welcome.blade.php :
+ 
+blade  
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .btn { display: inline-block; padding: 12px 24px; background: #2563eb; color: white !important; border-radius: 6px; text-decoration: none; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>ยินดีต้อนรับ, {{ $name }}! 🎉</h1>
+        <p>ขอบคุณที่เข้าร่วมกับเรา โปรดยืนยันอีเมลของคุณ:</p>
+        <p><a href="{{ $verifyUrl }}" class="btn">ยืนยันอีเมล</a></p>
+        <p>ขอแสดงความนับถือ,<br>ทีมงาน ZyntroAG</p>
+    </div>
+</body>
+</html>
+ 
+ 
+🚀 วิธีส่งเมล
+ 
+php  
+use App\Mail\WelcomeEmail;
+use Illuminate\Support\Facades\Mail;
+
+// ส่งทันที
+Mail::to($user->email)->send(
+    new WelcomeEmail($user->name, $verifyUrl)
+);
+
+// ส่งผ่าน Queue (แนะนำ ⭐)
+Mail::to($user->email)->queue(
+    new WelcomeEmail($user->name, $verifyUrl)
+);
+ 
+ 
+📋 ผู้ให้บริการอีเมล
+ 
+บริการ เหมาะสำหรับ ค่าเริ่มต้น 
+Mailpit Local Development เท่านั้น  MAIL_MAILER=mailpit  
+Mailgun Production, ส่งปริมาณมาก SMTP + API Key 
+Postmark Transactional, ส่งเร็วที่สุด Server API Token 
+SendGrid ฟรี tier ดี, ใช้ง่าย API Key 
+ 
+ 
+ 
+ 
+ 
+🔍 13. Redis for Caching, Sessions & Queues
+ 
+📦 ติดตั้ง Redis
+ 
+bash  
+sudo apt update
+sudo apt install redis-server php-redis -y
+ 
+ 
+🔒 ปรับความปลอดภัย —  /etc/redis/redis.conf 
+ 
+ini  
+# ปิดการเชื่อมต่อจากภายนอก
+bind 127.0.0.1
+
+# ใช้ Unix Socket (เร็วกว่า ไม่มี network overhead)
+unixsocket /run/redis/redis.sock
+unixsocketperm 660
+
+# ตั้งรหัสผ่าน
+requirepass your_strong_password
+
+# จำกัดหน่วยความจำ + นโยบายลบเมื่อเต็ม
+maxmemory 2gb
+maxmemory-policy allkeys-lru
+ 
+ 
+bash  
+sudo systemctl restart redis-server
+sudo systemctl enable redis-server
+redis-cli ping  # ควรได้ PONG
+ 
+ 
+⚙️ ตั้งค่า  .env  — แยก Database ป้องกันข้อมูลชนกัน
+ 
+env  
+CACHE_STORE=redis
+CACHE_CONNECTION=cache
+
+SESSION_DRIVER=redis
+SESSION_CONNECTION=session
+
+QUEUE_CONNECTION=redis
+QUEUE_REDIS_CONNECTION=queue
+
+REDIS_CLIENT=phpredis
+REDIS_SOCKET=/run/redis/redis.sock
+REDIS_PASSWORD=your_strong_password
+ 
+ 
+📁 แยกการเชื่อมต่อ —  config/database.php 
+ 
+php  
+'redis' => [
+    'client' => env('REDIS_CLIENT', 'phpredis'),
+
+    'cache' => [
+        'scheme' => 'unix',
+        'path' => env('REDIS_SOCKET', '/run/redis/redis.sock'),
+        'password' => env('REDIS_PASSWORD'),
+        'database' => 0,
+    ],
+
+    'session' => [
+        'scheme' => 'unix',
+        'path' => env('REDIS_SOCKET', '/run/redis/redis.sock'),
+        'password' => env('REDIS_PASSWORD'),
+        'database' => 1,
+    ],
+
+    'queue' => [
+        'scheme' => 'unix',
+        'path' => env('REDIS_SOCKET', '/run/redis/redis.sock'),
+        'password' => env('REDIS_PASSWORD'),
+        'database' => 2,
+    ],
+],
+ 
+ 
+💡 ตัวอย่างการใช้งาน
+ 
+Cache:
+ 
+php  
+use Illuminate\Support\Facades\Cache;
+
+// เก็บข้อมูล 1 ชม.
+$posts = Cache::remember('posts:all', 3600, function () {
+    return Post::with('user')->get();
+});
+
+// ตั้งค่า Lock ป้องกัน Race Condition
+$lock = Cache::lock('processing:'.$order->id, 10);
+if ($lock->get()) {
+    // ดำเนินการ...
+    $lock->release();
+}
+
+// ใช้ Tag สำหรับล้างกลุ่มข้อมูล
+Cache::tags(['posts'])->put('post:'.$id, $data, 3600);
+Cache::tags(['posts'])->flush();
+ 
+ 
+Session & Queue:
+ 
+✅ ไม่ต้องแก้โค้ดเลย! แค่เปลี่ยน Driver ใน  .env  ใช้งานเหมือนเดิมแต่เร็วขึ้น
+ 
+🚀 Supervisor สำหรับ Queue Workers
+ 
+ติดตั้ง:
+ 
+bash  
+sudo apt install supervisor -y
+ 
+ 
+สร้างไฟล์  /etc/supervisor/conf.d/laravel-queue.conf :
+ 
+ini  
+[program:laravel-queue]
+process_name=%(program_name)s_%(process_num)02d
+command=php /var/www/laravel-app/artisan queue:work redis --queue=default --sleep=3 --tries=3 --max-time=3600
+directory=/var/www/laravel-app
+user=www-data
+numprocs=4
+autostart=true
+autorestart=true
+stopasgroup=true
+killasgroup=true
+stdout_logfile=/var/www/laravel-app/storage/logs/queue-worker.log
+stderr_logfile=/var/www/laravel-app/storage/logs/queue-worker-error.log
+ 
+ 
+เปิดใช้งาน:
+ 
+bash  
+sudo supervisorctl reread
+sudo supervisorctl update
+sudo supervisorctl start laravel-queue:*
+sudo supervisorctl status laravel-queue:*
+ 
+ 
+ 
+ 
+ 
+ 
+📊 14. Logging & Monitoring
+ 
+⚙️ ตั้งค่า Logging —  config/logging.php 
+ 
+php  
+return [
+    'default' => env('LOG_CHANNEL', 'stack'),
+
+    'channels' => [
+        'stack' => [
+            'driver' => 'stack',
+            'channels' => ['daily', 'slack'],
+            'ignore_exceptions' => false,
+        ],
+
+        'daily' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/laravel.log'),
+            'level' => env('LOG_LEVEL', 'info'),
+            'days' => 14,
+            'permission' => 0644,
+        ],
+
+        'stderr' => [
+            'driver' => 'monolog',
+            'level' => 'debug',
+            'handler' => Monolog\Handler\StreamHandler::class,
+            'formatter' => Monolog\Formatter\JsonFormatter::class,
+            'with' => [
+                'stream' => 'php://stderr',
+            ],

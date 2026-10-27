@@ -45,7 +45,8 @@ Error Code สาเหตุที่เป็นไปได้ วิธี�
  
 ❌  php artisan  ไม่ทำงาน / Command not found
  
-bash  
+bash
+  
 # ตรวจว่าอยู่ในโฟลเดอร์โปรเจกต์หรือไม่
 pwd
 ls artisan
@@ -58,7 +59,8 @@ php artisan --version
  
 ❌  .env  เปลี่ยนค่าแล้วไม่มีผล
  
-bash  
+bash
+  
 # สาเหตุ: Config ถูก cache ไว้
 php artisan config:clear
 php artisan cache:clear
@@ -69,7 +71,8 @@ php artisan config:cache  # ❌ อย่ารันตอน local development
  
 ❌  composer install  ล้มเหลว / การดาวน์โหลดช้ามาก
  
-bash  
+bash
+  
 # ลบไฟล์ที่มีปัญหาแล้วลองใหม่
 composer clear-cache
 composer install --no-dev --prefer-dist
@@ -91,7 +94,8 @@ composer config -g repo.packagist composer https://mirrors.aliyun.com/composer/
  
 ❌ Migration ล้มเหลว / Table already exists
  
-bash  
+bash
+  
 # ดูสถานะ migration
 php artisan migrate:status
 
@@ -128,7 +132,8 @@ php artisan migrate:rollback
 - ✅ ใช้  @method('PUT')  สำหรับ PUT/PATCH/DELETE:  <form method="POST"> @csrf @method('PUT') ... </form> 
 - ✅ API Route ไม่ต้องการ CSRF — ยกเว้นใน  app/Http/Middleware/VerifyCsrfToken.php :
  
-php  
+php
+  
 protected $except = [
     'api/*',
     'sanctum/token',
@@ -137,7 +142,8 @@ protected $except = [
  
 ❌ Route มีอยู่แต่เรียกไม่ได้
  
-bash  
+bash
+  
 # ดูรายการ Route ทั้งหมด
 php artisan route:list
 
@@ -155,7 +161,8 @@ php artisan route:clear
  
 ❌ แก้โค้ดแล้วแต่หน้าแสดงผลเก่า
  
-bash  
+bash
+  
 # ล้างทุกอย่างในคำสั่งเดียว ✅
 php artisan optimize:clear
 
@@ -181,7 +188,8 @@ php artisan view:clear
 - ✅ ตรวจ  MAIL_HOST ,  MAIL_PORT ,  MAIL_ENCRYPTION ,  MAIL_USERNAME ,  MAIL_PASSWORD 
 - ✅ ทดสอบส่งแบบตรงๆ ก่อน:
  
-php  
+php
+  
 use Illuminate\Support\Facades\Mail;
 try {
     Mail::raw('Test email', function ($msg) {
@@ -197,7 +205,8 @@ try {
  
 ❌ Job ใน Queue ไม่ทำงาน
  
-bash  
+bash
+  
 # ตรวจสถานะ
 php artisan queue:status
 
@@ -240,7 +249,8 @@ php artisan queue:restart
  
 ❌ Token ไม่ถูกต้อง / Unauthorized 401
  
-bash  
+bash
+  
 # ตรวจวิธีรับ Token
 curl -X POST http://localhost:8000/api/sanctum/token \
   -H "Content-Type: application/json" \
@@ -263,7 +273,8 @@ curl http://localhost:8000/api/user \
  
 ❌ Cannot connect to Redis / Connection refused
  
-bash  
+bash
+  
 # ตรวจสถานะ Redis
 sudo systemctl status redis
 
@@ -289,7 +300,8 @@ redis-cli ping
  
 ❌ ไฟล์อัปโหลดไม่ได้ / Permission denied
  
-bash  
+bash
+  
 # ตั้งสิทธิ์โฟลเดอร์ที่ต้องเขียน
 sudo chown -R www-data:www-data /var/www/laravel-app
 sudo chmod -R 755 /var/www/laravel-app
@@ -299,7 +311,8 @@ sudo chmod 600 /var/www/laravel-app/.env
  
 ❌ หลังอัปโหลดโค้ดใหม่ หน้าขาว / Error 500
  
-bash  
+bash
+  
 cd /var/www/laravel-app
 
 # อัปเดต Dependency
@@ -324,7 +337,8 @@ sudo systemctl restart laravel-queue
 - ✅ ตรวจ  try_files $uri $uri/ /index.php?$query_string;  มีอยู่
 - ✅ ตรวจ PHP-FPM socket ตรงกับเวอร์ชัน PHP ที่ติดตั้ง
  
-bash  
+bash
+  
 # ตรวจสอบทั้งหมด
 sudo nginx -t
 sudo systemctl reload nginx
@@ -333,7 +347,8 @@ sudo systemctl status php8.3-fpm
  
 ❌ SSL ไม่ทำงาน / ยังเข้า HTTP ได้
  
-bash  
+bash
+  
 # ตรวจ Certbot
 sudo certbot --nginx -d your-domain.com
 
@@ -348,14 +363,16 @@ return 301 https://$host$request_uri;
  
 ✅ ชุดที่ 1 — ล้าง Cache ทั้งหมด
  
-bash  
+bash
+  
 php artisan optimize:clear
 composer dump-autoload
  
  
 ✅ ชุดที่ 2 — ตรวจสอบระบบเบื้องต้น
  
-bash  
+bash
+  
 # ดูเวอร์ชัน
 php artisan --version
 php -v
@@ -373,7 +390,8 @@ tail -f storage/logs/laravel.log
  
 ✅ ชุดที่ 3 — กู้คืน Production
  
-bash  
+bash
+  
 # เข้าโหมดบำรุงรักษา
 php artisan down --message="กำลังอัปเดตระบบ กรุณารอสักครู่..."
 

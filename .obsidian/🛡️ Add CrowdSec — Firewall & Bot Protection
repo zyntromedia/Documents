@@ -1,0 +1,34 @@
+
+🛡️ Add CrowdSec — Firewall & Bot Protection
+
+Complete step-by-step — CrowdSec + Nginx Bouncer integrated directly into your full production stack ✅
+
+ 
+
+📋 How It Works
+
+plaintext
+
+┌─────────────┐ Logs ┌─────────────┐ Bans ┌──────────────────────┐ │ Nginx │───────▶│ CrowdSec │───────▶│ Nginx Bouncer │ │ (Visitor) │ │ Detector │ │ (Block at edge) │ └─────────────┘ └─────────────┘ └──────────────────────┘ ↑ ↑ ↑ Request → Analyzes logs Return 403 ← Response Detects attacks "Forbidden"
+
+ 
+
+CrowdSec Agent: Reads Nginx logs → detects brute force, scanners, bots → bans IPs
+Nginx Bouncer: Queries CrowdSec → blocks banned IPs BEFORE your API sees them
+Community Database: Automatically blocks IPs reported worldwide — proactive protection ✅
+ 
+
+📁 Step 1 — Create Directory & Files
+
+bash
+
+mkdir -p crowdsec
+
+ 
+
+📄  crowdsec/acquis.yaml  — Log Sources
+
+yaml
+
+==========================================
+ACQUISITION — Tell CrowdSec where to find logs
